@@ -3,7 +3,7 @@ use anchor_lang::{
     system_program::{transfer, Transfer},
 };
 
-use crate::state::Bet;
+use crate::{errors::DiceError, state::Bet};
 
 #[derive(Accounts)]
 #[instruction(seed:u128)]
@@ -37,6 +37,11 @@ impl<'info> PlaceBet<'info> {
         roll: u8,
         amount: u64,
     ) -> Result<()> {
+        // Validate bet parameters
+        require!(amount >= 10_000_000, DiceError::MinimumBet); // 0.01 SOL
+        require!(roll >= 2, DiceError::MinimumRoll);
+        require!(roll <= 96, DiceError::MaximumRoll);
+
         self.bet.set_inner(Bet {
             slot: Clock::get()?.slot,
             player: self.player.key(),

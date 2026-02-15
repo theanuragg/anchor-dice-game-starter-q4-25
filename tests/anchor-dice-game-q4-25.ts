@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { AnchorDiceGameQ425 } from "../target/types/anchor_dice_game_q4_25";
-import { PublicKey, SystemProgram, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js";
+import { PublicKey, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js";
 import { assert, expect } from "chai";
 import BN from "bn.js";
 
@@ -61,8 +61,6 @@ describe("anchor-dice-game-q4-25", () => {
         .initialize(depositAmount)
         .accounts({
           house: house.publicKey,
-          vault: vaultPda,
-          systemProgram: SystemProgram.programId,
         })
         .rpc();
 
@@ -100,9 +98,7 @@ describe("anchor-dice-game-q4-25", () => {
         .accounts({
           player: player.publicKey,
           house: house.publicKey,
-          vault: vaultPda,
-          bet: betPda,
-          systemProgram: SystemProgram.programId,
+
         })
         .signers([player])
         .rpc();
@@ -151,9 +147,7 @@ describe("anchor-dice-game-q4-25", () => {
         .accounts({
           player: player.publicKey,
           house: house.publicKey,
-          vault: vaultPda,
-          bet: betPda,
-          systemProgram: SystemProgram.programId,
+
         })
         .signers([player])
         .rpc();
@@ -180,20 +174,15 @@ describe("anchor-dice-game-q4-25", () => {
           .accounts({
             player: player.publicKey,
             house: house.publicKey,
-            vault: vaultPda,
-            bet: betPda,
-            systemProgram: SystemProgram.programId,
+
           })
           .signers([player])
           .rpc();
 
         assert.fail("Should have thrown TimeoutNotReached error");
       } catch (err: any) {
-        // The refund_bet logic checks (self.bet.slot - slot) > 1000
-        // Since in test the current slot is ahead of bet slot,
-        // the subtraction will underflow (u64 subtraction).
-        // This will either underflow-panic or fail the require!.
-        // In either case the tx should fail.
+        // Timeout check: (current_slot - bet_slot) > 1000
+        // Since we just placed the bet, not enough slots have passed.
         console.log("Refund correctly rejected:", err.message?.slice(0, 100));
         assert.ok(err, "Transaction should fail");
       }
@@ -213,9 +202,7 @@ describe("anchor-dice-game-q4-25", () => {
           .accounts({
             player: player.publicKey,
             house: house.publicKey,
-            vault: vaultPda,
-            bet: betPda,
-            systemProgram: SystemProgram.programId,
+
           })
           .signers([player])
           .rpc();
@@ -241,9 +228,7 @@ describe("anchor-dice-game-q4-25", () => {
         .accounts({
           player: player2.publicKey,
           house: house.publicKey,
-          vault: vaultPda,
-          bet: betPda,
-          systemProgram: SystemProgram.programId,
+
         })
         .signers([player2])
         .rpc();
@@ -256,5 +241,78 @@ describe("anchor-dice-game-q4-25", () => {
         "Bet should belong to player2"
       );
     });
+
+    it("rejects bet with roll below minimum (< 2)", async () => {
+      const seed = new BN(100);
+      const roll = 1; // below minimum of 2
+      const betAmount = new BN(0.1 * LAMPORTS_PER_SOL);
+      const [betPda] = deriveBetPda(seed);
+
+      try {
+        await program.methods
+          .placeBet(seed, roll, betAmount)
+          .accounts({
+            player: player.publicKey,
+            house: house.publicKey,
+
+          })
+          .signers([player])
+          .rpc();
+
+        assert.fail("Should have thrown MinimumRoll error");
+      } catch (err: any) {
+        console.log("Roll too low correctly rejected:", err.message?.slice(0, 100));
+        expect(err.toString()).to.include("MinimumRoll");
+      }
+    });
+
+    it("rejects bet with roll above maximum (> 96)", async () => {
+      const seed = new BN(101);
+      const roll = 97; // above maximum of 96
+      const betAmount = new BN(0.1 * LAMPORTS_PER_SOL);
+      const [betPda] = deriveBetPda(seed);
+
+      try {
+        await program.methods
+          .placeBet(seed, roll, betAmount)
+          .accounts({
+            player: player.publicKey,
+            house: house.publicKey,
+
+          })
+          .signers([player])
+          .rpc();
+
+        assert.fail("Should have thrown MaximumRoll error");
+      } catch (err: any) {
+        console.log("Roll too high correctly rejected:", err.message?.slice(0, 100));
+        expect(err.toString()).to.include("MaximumRoll");
+      }
+    });
+
+    it("rejects bet below minimum amount (< 0.01 SOL)", async () => {
+      const seed = new BN(102);
+      const roll = 50;
+      const betAmount = new BN(0.001 * LAMPORTS_PER_SOL); // below 0.01 SOL
+      const [betPda] = deriveBetPda(seed);
+
+      try {
+        await program.methods
+          .placeBet(seed, roll, betAmount)
+          .accounts({
+            player: player.publicKey,
+            house: house.publicKey,
+
+          })
+          .signers([player])
+          .rpc();
+
+        assert.fail("Should have thrown MinimumBet error");
+      } catch (err: any) {
+        console.log("Bet too small correctly rejected:", err.message?.slice(0, 100));
+        expect(err.toString()).to.include("MinimumBet");
+      }
+    });
   });
 });
+
